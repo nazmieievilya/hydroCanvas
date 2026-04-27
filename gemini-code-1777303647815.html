@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>Гідростатичний стенд 5.0</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        .lab-container { display: flex; gap: 20px; background: white; padding: 25px; border-radius: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); }
+        .sidebar { width: 280px; display: flex; flex-direction: column; gap: 12px; }
+        canvas { background: #fff; border: 2px solid #34495e; border-radius: 8px; }
+        .param-box { background: #f8f9fa; padding: 10px; border-radius: 8px; border-left: 4px solid #3498db; font-size: 13px; }
+        .data-screen { background: #2c3e50; color: #2ecc71; padding: 12px; border-radius: 8px; font-family: 'Courier New', monospace; font-size: 12px; }
+        label { font-weight: bold; display: block; margin-bottom: 5px; }
+        input[type="range"] { width: 100%; }
+        button { cursor: pointer; padding: 8px; border: none; border-radius: 4px; background: #34495e; color: white; transition: 0.2s; }
+        button:hover { background: #2c3e50; }
+    </style>
+</head>
+<body>
+
+    <h2>Гідростатична лабораторія: ρ, g, h</h2>
+
+    <div class="lab-container">
+        <div class="sidebar">
+            <div class="param-box">
+                <label>Густина (ρ): <span id="rho_l">1000</span> кг/м³</label>
+                <input type="range" id="rho_r" min="500" max="2000" value="1000">
+            </div>
+            <div class="param-box">
+                <label>Площа S1: <span id="s1_l">30</span> см²</label>
+                <input type="range" id="s1_r" min="15" max="60" value="30">
+            </div>
+            <div class="param-box">
+                <label>Площа S2: <span id="s2_l">100</span> см²</label>
+                <input type="range" id="s2_r" min="70" max="180" value="100">
+            </div>
+            <div class="data-screen">
+                <div>P1_total: <span id="p1_total">0</span> Па</div>
+                <div>P2_total: <span id="p2_total">0</span> Па</div>
+                <div style="color: #95a5a6; font-size: 10px; margin-top:5px;">P = (m·g/S) + (ρ·g·h)</div>
+            </div>
+            <button onclick="resetSystem()">Скинути (Reset)</button>
+        </div>
+
+        <canvas id="hydroCanvas" width="600" height="480"></canvas>
+    </div>
+
+<script>
+    const canvas = document.getElementById('hydroCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Фізичні константи та змінні
+    let rho = 1000; // Густина
+    let S1 = 30, S2 = 100;
+    let h1 = 200, h2 = 200; // Висота в пікселях (для розрахунку тиску вважаємо 1пкс = 0.01м)
+    const g = 9.81;
+    const baseY = 420;
+    let totalVol = h1 * S1 + h2 * S2;
+
+    let items = [
+        { x: 20, y: 20, w: 35, h: 35, m: 5, color: '#f1c40f', label: '5кг', p: null, drag: false },
+        { x: 70, y: 20, w: 50, h: 50, m: 20, color: '#e67e22', label: '20кг', p: null, drag: false },
+        { x: 135, y: 20, w: 60, h: 60, m: 50, color: '#c0392b', label: '50кг', p: null, drag: false }
+    ];
+
+    let dragObj = null;
+    let offset = { x: 0, y: 0 };
+
+    // Елементи інтерфейсу
+    const rhoR = document.getElementById('rho_r');
+    const s1R = document.getElementById('s1_r');
+    const s2R = document.getElementById('s2_r');
+
+    function updateParams() {
+        rho = parseInt(rhoR.value);
+        S1 = parseInt(s1R.value);
+        S2 = parseInt(s2R.value);
+        document.getElementById('rho_l').innerText = rho;
+        document.getElementById('s1_l').innerText = S1;
+        document.getElementById('s2_l').innerText = S2;
+        totalVol = h1 * S1 + h2 * S2;
+    }
+
+    rhoR.oninput = updateParams;
+    s1R.oninput = updateParams;
+    s2R.oninput = updateParams;
+
+    function resetSystem() { h1 = 200; h2 = 200; totalVol = h1 * S1 + h2 * S2; }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Вода
+        ctx.fillStyle = '#3498db';
+        ctx.globalAlpha = 0.8;
+        ctx.fillRect(180 - S1/2, baseY - h1 - 40, S1, h1 + 40);
+        ctx.fillRect(450 - S2/2, baseY - h2 - 40, S2, h2 + 40);
+        ctx.fillRect(180 - S1/2, baseY - 40, 270 + S2/2, 40);
+        ctx.globalAlpha = 1.0;
+
+        // Труби
+        ctx.strokeStyle = '#2c3e50'; ctx.lineWidth = 4;
+        ctx.strokeRect(180 - S1/2, 50, S1, baseY - 50);
+        ctx.strokeRect(450 - S2/2, 50, S2, baseY - 50);
+
+        const p1Y = baseY - h1 - 40 - 10;
+        const p2Y = baseY - h2 - 40 - 10;
+
+        // Поршні
+        ctx.fillStyle = '#95a5a6';
+        ctx.fillRect(180 - S1/2 - 2, p1Y, S1 + 4, 15);
+        ctx.fillRect(450 - S2/2 - 2, p2Y, S2 + 4, 15);
+
+        // Вантажі
+        items.forEach(o => {
+            ctx.fillStyle = o.color; ctx.fillRect(o.x, o.y, o.w, o.h);
+            ctx.fillStyle = 'white'; ctx.font = 'bold 11px sans-serif';
+            ctx.textAlign = 'center'; ctx.fillText(o.label, o.x + o.w/2, o.y + o.h/2 + 5);
+        });
+
+        physics(p1Y, p2Y);
+        requestAnimationFrame(draw);
+    }
+
+    function physics(p1Y, p2Y) {
+        let m1 = 0, m2 = 0;
+        items.forEach(o => { if (o.p === 1) m1 += o.m; if (o.p === 2) m2 += o.m; });
+
+        // МАСШТАБ: 1 піксель висоти = 0.01 метра, 1 см² площі = 0.0001 м²
+        const S1_m2 = S1 * 0.0001;
+        const S2_m2 = S2 * 0.0001;
+        const h1_m = h1 * 0.01;
+        const h2_m = h2 * 0.01;
+
+        // Повний тиск на дно (Паскалі)
+        let P1_piston = (m1 * g) / S1_m2;
+        let P1_hydro = rho * g * h1_m;
+        let P1_total = P1_piston + P1_hydro;
+
+        let P2_piston = (m2 * g) / S2_m2;
+        let P2_hydro = rho * g * h2_m;
+        let P2_total = P2_piston + P2_hydro;
+
+        document.getElementById('p1_total').innerText = Math.round(P1_total);
+        document.getElementById('p2_total').innerText = Math.round(P2_total);
+
+        // Сили виштовхування (візуалізація)
+        renderForce(180 - S1/2 - 30, p1Y + 10, P1_total/500, 'P_tot', '#2ecc71');
+        renderForce(450 + S2/2 + 30, p2Y + 10, P2_total/500, 'P_tot', '#2ecc71');
+
+        // Рух рідини до вирівнювання ТИСКУ
+        const flow = 1.0;
+        const minH = 20;
+        if (P1_total > P2_total + 10 && h1 > minH) {
+            h1 -= flow; h2 = (totalVol - h1 * S1) / S2;
+        } else if (P2_total > P1_total + 10 && h2 > minH) {
+            h2 -= flow; h1 = (totalVol - h2 * S2) / S1;
+        }
+
+        // Прив'язка
+        items.forEach(o => {
+            if (!o.drag) {
+                if (o.p === 1) { o.x = 180 - o.w/2; o.y = p1Y - o.h; }
+                if (o.p === 2) { o.x = 450 - o.w/2; o.y = p2Y - o.h; }
+            }
+        });
+    }
+
+    function renderForce(x, y, len, name, color) {
+        ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.fillStyle = color;
+        const l = Math.min(len, 80);
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - l);
+        ctx.lineTo(x-5, y-l+5); ctx.moveTo(x, y-l); ctx.lineTo(x+5, y-l+5); ctx.stroke();
+    }
+
+    // Mouse Events
+    canvas.onmousedown = e => {
+        const r = canvas.getBoundingClientRect(); const mx = e.clientX - r.left, my = e.clientY - r.top;
+        items.forEach(o => { if (mx > o.x && mx < o.x + o.w && my > o.y && my < o.y + o.h) { dragObj = o; o.drag = true; o.p = null; offset.x = mx - o.x; offset.y = my - o.y; } });
+    };
+    canvas.onmousemove = e => { if (dragObj) { const r = canvas.getBoundingClientRect(); dragObj.x = e.clientX - r.left - offset.x; dragObj.y = e.clientY - r.top - offset.y; } };
+    window.onmouseup = () => { if (dragObj) { if (Math.abs(dragObj.x + dragObj.w/2 - 180) < S1) dragObj.p = 1; else if (Math.abs(dragObj.x + dragObj.w/2 - 450) < S2) dragObj.p = 2; dragObj.drag = false; dragObj = null; } };
+
+    draw();
+</script>
+</body>
+</html>
